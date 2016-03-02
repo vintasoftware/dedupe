@@ -12,6 +12,7 @@ from . import blocking, predicates, core, index, backport
 import numpy
 import logging
 import random
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def blockTraining(pairs,
     if len(pairs['match']) < 50 :
         compound_length = 2
     else :
-        compound_length = 3
+        compound_length = 2
 
     dupe_cover = cover(blocker, pairs['match'], compound_length)
     distinct_cover = cover(blocker, pairs['distinct'], compound_length)
@@ -145,17 +146,21 @@ def blockTraining(pairs,
                   in viewitems(dupe_cover)
                   if distinct_count[pred] < coverage_threshold}
 
-    chvatal_set = greedy(dupe_cover.copy(), distinct_count, epsilon)
+    predicates = greedy(copy.deepcopy(dupe_cover),
+                        distinct_count, epsilon)
+    
+    #predicates = tuple(dominating({pred : dupe_cover[pred].copy()
+    #                               for pred in predicates}))
+    
+    bb = BranchBound(predicates, distinct_count, epsilon, 5000)
 
-    dupe_cover = {pred : dupe_cover[pred] for pred in chvatal_set}
-        
-    final_predicates = tuple(dominating(dupe_cover))
+    predicates = bb.search(dupe_cover)
 
     logger.info('Final predicate set:')
-    for predicate in final_predicates :
+    for predicate in predicates :
         logger.info(predicate)
 
-    return final_predicates
+    return predicates
 
 def greedy(dupe_cover, distinct_count, epsilon):
 
@@ -178,6 +183,8 @@ def greedy(dupe_cover, distinct_count, epsilon):
     #
     # (predicate_covered_dupe_pairs + 1)/ (predicate_covered_distinct_pairs + 1)
 
+    
+    
     uncovered_dupes = set.union(*dupe_cover.values())
     final_predicates = set()
 
@@ -185,6 +192,7 @@ def greedy(dupe_cover, distinct_count, epsilon):
         cost = lambda p : distinct_count[p]/len(dupe_cover[p])
         
         best_predicate = min(dupe_cover, key = cost)
+        print(cost(best_predicate))
         final_predicates.add(best_predicate)
 
         covered = dupe_cover.pop(best_predicate)        
@@ -205,6 +213,64 @@ def greedy(dupe_cover, distinct_count, epsilon):
 
     return final_predicates
 
+class BranchBound(object) :
+    def __init__(self, initial_solution, distinct_count, epsilon, max_calls) :
+        self.calls = max_calls
+        self.distinct = distinct_count
+        self.epsilon = epsilon
+        self.cheapest = initial_solution
+        self.cheapest_score = self.score(initial_solution)
+
+    def search(self, dupe_cover, partial=()) :
+        
+        if self.calls <= 0 :
+            return self.cheapest
+
+        self.calls -= 1
+
+        if self.calls % 500 == 0 :
+            print(self.calls)
+
+        if dupe_cover :
+            uncovered_dupes = set.union(*dupe_cover.values())
+        else :
+            print(dupe_cover)
+            uncovered_dupes = set()
+
+        if len(uncovered_dupes) <= self.epsilon :
+            partial_score = self.score(partial)
+            print(partial_score, self.cheapest_score)
+            if partial_score < self.cheapest_score :
+                self.cheapest = partial
+                self.cheapest_score = partial_score
+                print(partial)
+
+        elif (dupe_cover and self.lower_bound(partial, dupe_cover) <= self.cheapest_score) :
+            cost = lambda p : self.distinct[p]/len(dupe_cover[p])
+            best_predicate = min(dupe_cover, key=cost)
+            best_cost = cost(best_predicate)
+            covered = dupe_cover.pop(best_predicate)
+
+            new_cover = copy.deepcopy(dupe_cover)
+            remaining_cover(new_cover, covered)
+            self.search(new_cover,
+                        partial + (best_predicate,))
+            if best_cost :
+                self.search(copy.deepcopy(dupe_cover), partial)
+
+        return self.cheapest
+
+
+    def score(self, partial) :
+        return sum(self.distinct[predicate] for predicate in partial)
+
+    def lower_bound(self, partial, dupe_cover) :
+        assert min(len(v) for v in dupe_cover.values()) != 0
+        return self.score(partial) + min(self.distinct[p] for p in dupe_cover)
+
+    
+        
+    
 def dominating(dupe_cover) :
 
     uncovered_dupes = set.union(*dupe_cover.values())
