@@ -25,7 +25,7 @@ class RandomPairsTest(unittest.TestCase) :
         else:
             target = [(357, 8322)]
 
-        random_pairs = list(dedupe.core.randomPairs(50**4, 1000))
+        random_pairs = list(dedupe.core.randomPairs(5*10**4, 1000))
         assert random_pairs == target
 
 
