@@ -19,6 +19,9 @@ import operator
 import random
 import collections
 import warnings
+import shelve
+import tempfile
+import pickle
 
 import numpy
 
@@ -319,3 +322,20 @@ def Enumerator(start=0, initial=()):
         return collections.defaultdict(itertools.count(start).next, initial)
     except AttributeError : # py 3
         return collections.defaultdict(itertools.count(start).__next__, initial)
+
+def temp_shelve():
+    fd, file_path = tempfile.mkstemp()
+    os.close(fd)
+
+    try:
+        shelf = shelve.open(file_path, 'n',
+                                      protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as e:
+        if 'db type could not be determined' in str(e):
+            os.remove(file_path)
+            shelf = shelve.open(file_path, 'n',
+                                protocol=pickle.HIGHEST_PROTOCOL)
+        else:
+            raise
+
+    return shelf, file_path

@@ -3,6 +3,7 @@
 from future.utils import viewvalues
 
 import itertools
+import os
 from collections import defaultdict
 
 import warnings
@@ -10,54 +11,65 @@ import numpy
 import fastcluster
 import hcluster
 
+from .core import temp_shelve
+
 def connected_components(edgelist, max_components) :
 
-    root = {}
-    component = {}
-    indices = {}
+    root, root_file_path = temp_shelve()
+    component, component_file_path = temp_shelve()
+    indices, indices_file_path = temp_shelve()
 
     if len(edgelist['pairs']) == 0:
         raise StopIteration()
 
     it = numpy.nditer(edgelist['pairs'], ['external_loop'])
+    print(len(edgelist))
 
-    for i, (a,b) in enumerate(it) :
+    for i, edge in enumerate(it) :
+        if i % 1000 == 0:
+            print(i)
+        a, b = edge.astype(str)
         root_a = root.get(a)
         root_b = root.get(b)
 
         if root_a is None and root_b is None :
             component[a] = {a, b}
-            indices[a] = [i]
+            indices[a] = (i,)
             root[a] = root[b] = a
         elif root_a is None or root_b is None :
             if root_a is None :
                 a, b = b, a
                 root_a, root_b = root_b, root_a
-            component[root_a].add(b)
-            indices[root_a].append(i)
+            component[root_a] |= {b}
+            indices[root_a] += (i,)
             root[b] = root_a
         elif root_a != root_b :
             component_a = component[root_a]
             component_b = component[root_b]
-            if len(component_a) < len(component_b) :
+            if len(component_a) < len(component_b):
                 root_a, root_b = root_b, root_a
                 component_a, component_b = component_b, component_a
 
             component_a |= component_b
-            indices[root_a].extend(indices[root_b])
-            indices[root_a].append(i)
+            indices[root_a] += indices[root_b]
+            indices[root_a] += (i,)
 
-            for node in component_b :
+            for node in component_b.astype(str) :
                 root[node] = root_a
 
             del component[root_b]
             del indices[root_b]
         else : 
-            indices[root_a].append(i)
+            indices[root_a] += (i,)
 
-    for root in component :
-        n_components = len(component[root])
-        sub_graph = edgelist[indices[root]]
+    root.close()
+    os.remove(root_file_path)
+    component.close()
+    os.remove(component_file_path)
+            
+    for edges in indices.values():
+        sub_graph = edgelist[list(edges)]
+        n_components = len(numpy.unique(sub_graph['pairs']))
         
         if n_components > max_components :
             min_score = numpy.min(sub_graph['score'])
@@ -75,7 +87,10 @@ def connected_components(edgelist, max_components) :
                yield sub_graph
         else :
             yield sub_graph
-     
+
+    indices.close()
+    os.remove(indices_file_path)
+
 
 def condensedDistance(dupes):
     '''

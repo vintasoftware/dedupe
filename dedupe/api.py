@@ -14,9 +14,7 @@ import multiprocessing
 import random
 import warnings
 import os
-import tempfile
 from collections import defaultdict, OrderedDict
-import shelve
 
 import numpy
 import simplejson as json
@@ -256,7 +254,7 @@ class DedupeMatching(Matching):
 
     def _blockData(self, data_d):
 
-        blocks, file_path = _temp_shelve()
+        blocks, file_path = core.temp_shelve()
 
         if not self.loaded_indices:
             self.blocker.indexAll(data_d)
@@ -421,7 +419,7 @@ class RecordLinkMatching(Matching):
 
     def _blockData(self, data_1, data_2):
 
-        blocked_records, file_path = _temp_shelve()
+        blocked_records, file_path = core.temp_shelve()
 
         if not self.loaded_indices:
             self.blocker.indexAll(data_2)
@@ -1055,19 +1053,3 @@ def flatten_training(training_pairs):
 
     return examples, numpy.array(y)
 
-def _temp_shelve():
-    fd, file_path = tempfile.mkstemp()
-    os.close(fd)
-
-    try:
-        shelf = shelve.open(file_path, 'n',
-                                      protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception as e:
-        if 'db type could not be determined' in str(e):
-            os.remove(file_path)
-            shelf = shelve.open(file_path, 'n',
-                                protocol=pickle.HIGHEST_PROTOCOL)
-        else:
-            raise
-
-    return shelf, file_path
