@@ -7,6 +7,7 @@ from future.utils import viewitems, viewvalues
 
 import itertools
 import logging
+import collections
 
 from . import blocking, predicates, core
 
@@ -109,16 +110,21 @@ class DedupeBlockLearner(BlockLearner):
 
         for predicate in blocker.predicates:
             cover[predicate] = {}
+
             for id, record in viewitems(records):
                 blocks = predicate(record)
                 for block in blocks:
                     cover[predicate].setdefault(block, set()).add(id)
 
         for predicate, blocks in cover.items():
-            pairs = {self.pair_id[pair]
-                     for block in blocks.values()
-                     for pair in itertools.combinations(sorted(block), 2)}
-            cover[predicate] = pairs
+            cover_count = collections.defaultdict(int)
+            for block in blocks.values():
+                for pair in itertools.combinations(sorted(block), 2):
+                    pair_id = self.pair_id[pair]
+                    cover_count[pair_id] += 1
+
+            cover[predicate] = {pair_id for pair_id, count in cover_count.items()
+                                if count >= predicate.required_matches}
 
         return cover
 
@@ -271,10 +277,11 @@ def coveredPairs(predicates, pairs):
     cover = {}
 
     for predicate in predicates:
+        
         coverage = {i for i, (record_1, record_2)
                     in enumerate(pairs)
-                    if (set(predicate(record_1)) &
-                        set(predicate(record_2, target=True)))}
+                    if len(set(predicate(record_1)) &
+                           set(predicate(record_2, target=True))) >= predicate.required_matches}
         if coverage:
             cover[predicate] = coverage
 
