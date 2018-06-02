@@ -15,7 +15,7 @@ class Blocker:
 
     def __init__(self, predicates):
 
-        self.predicates = sorted(predicates, key=lambda x: x.required_matches)
+        self.predicates = predicates
 
         self.index_fields = defaultdict(lambda: defaultdict(list))
 
@@ -34,8 +34,8 @@ class Blocker:
 
             for pred_id, predicate in enumerate(self.predicates):
                 block_keys = predicate(instance, target=target)
-                for block_key in block_keys:
-                    yield (pred_id, block_key, predicate.required_matches), record_id
+                for (block_key, required_matches) in block_keys:
+                    yield (pred_id, block_key, required_matches), record_id
 
             if i and i % 10000 == 0:
                 logger.info('%(iteration)d, %(elapsed)f2 seconds',

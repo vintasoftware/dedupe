@@ -206,10 +206,12 @@ class BlockLearner(object):
             for predicate in self.current_predicates:
                 keys = predicate(record_1)
                 if keys:
-                    if len(set(predicate(record_2, target=True))
-                           & set(keys)) >= predicate.required_matches:
-                        labels.append(1)
-                        break
+                    matches = set(predicate(record_2, target=True)) & set(keys)
+                    if matches:
+                        min_matches = min(required_matches for _, required_matches in matches)
+                        if len(matches) >= min_matches:
+                            labels.append(1)
+                            break
             else:
                 labels.append(0)
 

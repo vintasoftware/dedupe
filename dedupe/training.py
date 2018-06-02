@@ -118,13 +118,16 @@ class DedupeBlockLearner(BlockLearner):
 
         for predicate, blocks in cover.items():
             cover_count = collections.defaultdict(int)
-            for block in blocks.values():
+            cover_min = collections.defaultdict(lambda : float('inf'))
+            for (_, required_matches), block in blocks.items():
                 for pair in itertools.combinations(sorted(block), 2):
                     pair_id = self.pair_id[pair]
                     cover_count[pair_id] += 1
+                    cover_min[pair_id] = min(required_matches, cover_min[pair_id])
+
 
             cover[predicate] = {pair_id for pair_id, count in cover_count.items()
-                                if count >= predicate.required_matches}
+                                if count >= cover_min[pair_id]}
 
         return cover
 
@@ -175,8 +178,8 @@ class RecordLinkBlockLearner(BlockLearner):
                     cover_count[block] += 1
 
             cover[predicate] = {block : cover[predicate][block]
-                                for block, count in cover_count.items()
-                                if count >= predicate.required_matches}
+                                for (block, required_matches), count in cover_count.items()
+                                if count >= required_matches}
 
         for predicate, blocks in cover.items():
             pairs = set()
@@ -283,11 +286,19 @@ def coveredPairs(predicates, pairs):
     cover = {}
 
     for predicate in predicates:
-        
-        coverage = {i for i, (record_1, record_2)
-                    in enumerate(pairs)
-                    if len(set(predicate(record_1)) &
-                           set(predicate(record_2, target=True))) >= predicate.required_matches}
+
+        coverage = set()
+        if predicate.threshold == 0:
+            coverage = {i for i, (record_1, record_2)
+                        in enumerate(pairs)
+                        if (set(predicate(record_1)) &
+                            set(predicate(record_2, target=True)))}
+        else:
+            coverage = {i for i, (record_1, record_2)
+                        in enumerate(pairs)
+                        if jaccard(predicate(record_1),
+                                   predicate(record_2, target=True)) >= predicate.threshold}
+            
         if coverage:
             cover[predicate] = coverage
 
@@ -358,5 +369,15 @@ def dominators(match_cover, total_cover, comparison=False):
 
     return dominants
 
+
+def jaccard(a, b):
+    A = set(a)
+    B = set(b)
+    union = len(A | B)
+    if not union:
+        return 0
+    intersection = len(A & B)
+    ji = intersection/union
+    return ji
 
 OUT_OF_PREDICATES_WARNING = "Ran out of predicates: Dedupe tries to find blocking rules that will work well with your data. Sometimes it can't find great ones, and you'll get this warning. It means that there are some pairs of true records that dedupe may never compare. If you are getting bad results, try increasing the `max_comparison` argument to the train method"  # noqa: E501

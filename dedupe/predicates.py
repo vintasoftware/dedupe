@@ -33,13 +33,13 @@ else:
 
 
 class Predicate(object):
-    required_matches = 1
+    threshold = 0
     
     def __iter__(self):
         yield self
 
     def __repr__(self):
-        return "%s: %s, %s" % (self.type, self.__name__, self.required_matches)
+        return "%s: %s" % (self.type, self.__name__)
 
     def __hash__(self):
         try:
@@ -54,34 +54,81 @@ class Predicate(object):
     def __len__(self):
         return 1
 
+    def _func(self, column):
+        return itertools.product(self.func(column), [self.required_matches])
+
 
 class SimplePredicate(Predicate):
     type = "SimplePredicate"
+    required_matches = 1
 
     def __init__(self, func, field, required_matches=1):
-        self.func = func
         self.__name__ = "(%s, %s)" % (func.__name__, field)
         self.field = field
         self.required_matches = required_matches
-
+        self.func = func
 
     def __call__(self, record, **kwargs):
         column = record[self.field]
         if column:
-            return self.func(column)
+            return self._func(column)
         else:
             return ()
 
+
+class JaccardPredicate(Predicate):
+    type = "JaccardPredicate"
+
+    def __repr__(self):
+        return "%s: %s, %s" % (self.type, self.__name__, self.threshold)
+
+    
+    def __init__(self, func, field, threshold):
+        self.__name__ = "(%s, %s)" % (func.__name__, field)
+        self.field = field
+        self.threshold = threshold
+        self.match_multiplier = self.threshold/(1 + self.threshold)
+        self.func = func
+
+    def min_matches(self, N):
+        low = math.ceil(N * self.threshold)
+        high = math.floor(N / self.threshold)
+
+        for n in range(low, high+1):
+            m = (N + n) * self.match_multiplier
+            m = math.ceil(m)
+            yield n, m
+
+    def _func(self, column):
+
+        block_keys = set(self.func(column))
+        minimums = list(self.min_matches(len(block_keys)))
+        
+        for block_key in self.func(column):
+            for n, m in minimums:
+                x = (':'.join((block_key, str(n))), m)
+                #print(x)
+                yield x
+
+    def __call__(self, record, **kwargs):
+        column = record[self.field]
+        if column:
+            return self._func(" ".join(strip_punc(column).split()))
+        else:
+            return ()
+    
 
 class StringPredicate(SimplePredicate):
     def __call__(self, record, **kwargs):
         column = record[self.field]
         if column:
-            return self.func(" ".join(strip_punc(column).split()))
+            return self._func(" ".join(strip_punc(column).split()))
         else:
             return ()
 
 class ExistsPredicate(Predicate):
+    required_matches = 1
+
     type = "ExistsPredicate"
 
     def __init__(self, field):
@@ -97,10 +144,12 @@ class ExistsPredicate(Predicate):
 
     def __call__(self, record, **kwargs):
         column = record[self.field]
-        return self.func(column)
+        return self._func(column)
 
 
 class IndexPredicate(Predicate):
+    required_matches = 1
+    
     def __init__(self, threshold, field):
         self.__name__ = '(%s, %s)' % (threshold, field)
         self.field = field
@@ -160,7 +209,7 @@ class CanopyPredicate(object):
         if block_key is None:
             return []
         else:
-            return [str(block_key)]
+            return ((str(block_key), self.required_matches),)
 
 
 class SearchPredicate(object):
@@ -188,7 +237,8 @@ class SearchPredicate(object):
                 except AttributeError:
                     raise AttributeError("Attempting to block with an index "
                                          "predicate without indexing records")
-                result = [str(center) for center in centers]
+                result = [(str(center), self.required_matches)
+                          for center in centers]
                 self._cache[column] = result
                 return result
         else:
@@ -275,7 +325,6 @@ class CompoundPredicate(tuple):
 
     def __init__(self, *args):
         super(CompoundPredicate, self).__init__()
-        self.required_matches = prod(pred.required_matches for pred in self)
 
     @property
     def __name__(self):
@@ -284,9 +333,9 @@ class CompoundPredicate(tuple):
     def __call__(self, record, **kwargs):
         predicate_keys = [predicate(record, **kwargs)
                           for predicate in self]
-        return [u':'.join(block_key)
-                for block_key
-                in itertools.product(*predicate_keys)]
+        for prod_key in itertools.product(*predicate_keys):
+            block_keys, required_matches = tuple(zip(*prod_key))
+            yield u':'.join(block_keys), prod(required_matches)
 
 
 def wholeFieldPredicate(field):

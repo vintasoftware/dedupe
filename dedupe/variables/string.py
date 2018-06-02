@@ -22,6 +22,7 @@ base_predicates = (predicates.wholeFieldPredicate,
 class BaseStringType(FieldType):
     type = None
     _Predicate = predicates.StringPredicate
+    _OverlapPredicate = predicates.JaccardPredicate
 
     def __init__(self, definition):
         super(BaseStringType, self).__init__(definition)
@@ -50,9 +51,8 @@ class ShortStringType(BaseStringType):
                            predicates.nearIntegersPredicate,
                            predicates.alphaNumericPredicate,
                            predicates.commonIntegerPredicate,
-                           predicates.suffixArray,
                            predicates.metaphoneToken)
-    _overlap_thresholds = (1, 2, 3, 4)
+    _overlap_thresholds = (0.50, 0.75,)
 
     def __init__(self, definition):
         super(ShortStringType, self).__init__(definition)
