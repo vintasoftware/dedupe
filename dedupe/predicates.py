@@ -97,7 +97,8 @@ class JaccardPredicate(Predicate):
         for n in range(low, high+1):
             m = (N + n) * self.match_multiplier
             m = math.ceil(m)
-            yield n, m
+            for k in range(m, n + 1):
+                yield n, k
 
     def _func(self, column):
 
@@ -107,7 +108,7 @@ class JaccardPredicate(Predicate):
         for block_key in self.func(column):
             for n, m in minimums:
                 x = (':'.join((block_key, str(n))), m)
-                #print(x)
+                print(x)
                 yield x
 
     def __call__(self, record, **kwargs):
