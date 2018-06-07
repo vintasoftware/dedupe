@@ -291,13 +291,13 @@ def coveredPairs(predicates, pairs):
         if predicate.threshold == 0:
             coverage = {i for i, (record_1, record_2)
                         in enumerate(pairs)
-                        if (set(predicate(record_1)) &
-                            set(predicate(record_2, target=True)))}
+                        if (set(predicate(record_1, training=True)) &
+                            set(predicate(record_2, training=True, target=True)))}
         else:
             coverage = {i for i, (record_1, record_2)
                         in enumerate(pairs)
-                        if jaccard(predicate(record_1),
-                                   predicate(record_2, target=True)) >= predicate.threshold}
+                        if jaccard(predicate(record_1, training=True),
+                                   predicate(record_2, training=True, target=True)) >= predicate.threshold}
             
         if coverage:
             cover[predicate] = coverage

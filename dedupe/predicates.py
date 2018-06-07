@@ -92,13 +92,9 @@ class JaccardPredicate(Predicate):
 
     def min_matches(self, N):
         low = math.ceil(N * self.threshold)
-        high = math.floor(N / self.threshold)
 
-        for n in range(low, high+1):
-            m = (N + n) * self.match_multiplier
-            m = math.ceil(m)
-            for k in range(m, n + 1):
-                yield n, k
+        for n in range(low, N+1):
+            yield n
 
     def _func(self, column):
 
@@ -106,17 +102,23 @@ class JaccardPredicate(Predicate):
         minimums = list(self.min_matches(len(block_keys)))
         
         for block_key in self.func(column):
-            for n, m in minimums:
-                x = (':'.join((block_key, str(n))), m)
-                print(x)
-                yield x
+            for m in minimums:
+                yield block_key, m
 
-    def __call__(self, record, **kwargs):
+    def __call__(self, record, training=False, **kwargs):
         column = record[self.field]
-        if column:
-            return self._func(" ".join(strip_punc(column).split()))
+        if training:
+            if column:
+                return self.func(" ".join(strip_punc(column).split()))
+            else:
+                return ()
         else:
-            return ()
+            if column:
+                return self._func(" ".join(strip_punc(column).split()))
+            else:
+                return ()
+
+        
     
 
 class StringPredicate(SimplePredicate):

@@ -35,7 +35,8 @@ class Blocker:
             for pred_id, predicate in enumerate(self.predicates):
                 block_keys = predicate(instance, target=target)
                 for (block_key, required_matches) in block_keys:
-                    yield (pred_id, block_key, required_matches), record_id
+                    pred_id_x = '{}:{}'.format(pred_id, required_matches)
+                    yield (pred_id_x, block_key, required_matches), record_id
 
             if i and i % 10000 == 0:
                 logger.info('%(iteration)d, %(elapsed)f2 seconds',
