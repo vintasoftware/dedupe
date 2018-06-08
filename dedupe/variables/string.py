@@ -22,6 +22,7 @@ base_predicates = (predicates.wholeFieldPredicate,
 class BaseStringType(FieldType):
     type = None
     _Predicate = predicates.StringPredicate
+    _OverlapPredicate = predicates.MinHashPredicate
 
     def __init__(self, definition):
         super(BaseStringType, self).__init__(definition)

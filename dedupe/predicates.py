@@ -71,13 +71,33 @@ class SimplePredicate(Predicate):
             return self.func(column)
         else:
             return ()
-
+        
 
 class StringPredicate(SimplePredicate):
     def __call__(self, record, **kwargs):
         column = record[self.field]
         if column:
             return self.func(" ".join(strip_punc(column).split()))
+        else:
+            return ()
+
+import collections
+import random
+
+        
+class MinHashPredicate(SimplePredicate):
+    def __call__(self, record, **kwargs):
+        column = record[self.field]
+        if column:
+            print(column)
+            keys = self.func(" ".join(strip_punc(column).split()))
+            if keys:
+                print(keys)
+                hashes = collections.Counter([random.choice(tuple(keys)) for _ in range(100)])
+                print(hashes)
+                raise
+            else:
+                return ()
         else:
             return ()
 
