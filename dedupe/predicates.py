@@ -83,24 +83,62 @@ class StringPredicate(SimplePredicate):
 
 import collections
 import random
+from dedupe.lsh import MinHasher
 
         
-class MinHashPredicate(SimplePredicate):
+class MinHashStringPredicate(Predicate):
+    type = "MinHashStringPredicate"
+
+    def __init__(self, func, field, threshold=0.5, n_hashes=36):
+        self.func = func
+        self.__name__ = "(%s, %s)" % (func.__name__, field)
+        self.field = field
+        self.hasher = MinHasher(n_hashes)
+        self.threshold = threshold
+
+        std_err = threshold * (1 - threshold) / math.sqrt(n_hashes)
+        self.required_matches = int(math.floor((threshold - 1.65 * std_err) *
+                                               n_hashes))
+
+        
     def __call__(self, record, **kwargs):
         column = record[self.field]
         if column:
-            print(column)
-            keys = self.func(" ".join(strip_punc(column).split()))
+            keys = set(self.func(" ".join(strip_punc(column).split())))
             if keys:
-                print(keys)
-                hashes = collections.Counter([random.choice(tuple(keys)) for _ in range(100)])
-                print(hashes)
-                raise
+                return self.hasher(keys)
             else:
                 return ()
         else:
             return ()
 
+class MinHashSetPredicate(Predicate):
+    type = "MinHashSetPredicate"
+
+    def __init__(self, func, field, threshold=0.5, n_hashes=12):
+        self.func = func
+        self.__name__ = "(%s, %s)" % (func.__name__, field)
+        self.field = field
+        self.hasher = MinHasher(n_hashes)
+        self.threshold = threshold
+
+        std_err = threshold * (1 - threshold) / math.sqrt(n_hashes)
+        self.required_matches = math.floor((threshold - 1.65 * std_err) *
+                                           n_hashes)
+
+        
+    def __call__(self, record, **kwargs):
+        column = record[self.field]
+        if column:
+            keys = set(self.func(column))
+            if keys:
+                return self.hasher(keys)
+            else:
+                return ()
+        else:
+            return ()
+
+        
 class ExistsPredicate(Predicate):
     type = "ExistsPredicate"
 
@@ -304,7 +342,7 @@ class CompoundPredicate(tuple):
     def __call__(self, record, **kwargs):
         predicate_keys = [predicate(record, **kwargs)
                           for predicate in self]
-        return [u':'.join(block_key)
+        return [u':'.join(str(x) for x in block_key)
                 for block_key
                 in itertools.product(*predicate_keys)]
 

@@ -26,7 +26,7 @@ class BlockLearner(object):
                            self.total_cover, compound_length)
         comparison_count = self.comparisons(dupe_cover, compound_length)
 
-        dupe_cover = dominators(dupe_cover, comparison_count, comparison=True)
+        dupe_cover = dominators_2(dupe_cover, comparison_count, comparison=True)
 
         coverable_dupes = set.union(*viewvalues(dupe_cover))
         uncoverable_dupes = [pair for i, pair in enumerate(matches)
@@ -60,8 +60,8 @@ class BlockLearner(object):
         for pred in sorted(match_cover, key=str):
             if len(pred) > 1:
                 comparison_count[pred] = self.estimate(compounder(pred))
-            else:
-                comparison_count[pred] = self.estimate(self.total_cover[pred])
+            #else:
+            #    comparison_count[pred] = self.estimate(self.total_cover[pred])
 
         return comparison_count
 
@@ -72,21 +72,40 @@ class Compounder(object):
         self._cached_predicate = None
         self._cached_cover = None
 
+        self.block_index = {}
+
     def __call__(self, compound_predicate):
-        a, b = compound_predicate[:-1], compound_predicate[-1]
+        a, b = compound_predicate[0], compound_predicate[-1]
 
-        if len(a) > 1:
-            if a == self._cached_predicate:
-                a_cover = self._cached_cover
-            else:
-                a_cover = self._cached_cover = self(a)
-                self._cached_predicate = a
-        else:
-            a, = a
-            a_cover = self.cover[a]
+        return self.overlap(a, b)
 
-        return a_cover & self.cover[b]
+    def overlap(self, a, b):
 
+        print(a, b)
+        a_index = self._index(a)
+        b_index = self._index(b)
+
+        compound_cover = {}
+
+        for record_id in a_index.keys() & b_index.keys():
+            for compound_id in itertools.product(a_index[record_id],
+                                                 b_index[record_id]):
+                compound_cover.setdefault(compound_id, set()).add(record_id)
+
+        return compound_cover
+
+    def _index(self, pred):
+        if pred not in self.block_index:
+            index = {}
+            blocks = self.cover.get(pred, {})
+            for block_id, block in blocks.items():
+                for record_id in block:
+                    index.setdefault(record_id, set()).add(block_id)
+
+            self.block_index[pred] = index
+
+        return self.block_index[pred]
+                    
 
 class DedupeBlockLearner(BlockLearner):
 
@@ -97,6 +116,8 @@ class DedupeBlockLearner(BlockLearner):
         blocker.indexAll(data)
 
         self.total_cover = self.coveredPairs(blocker, sampled_records)
+        self.sample_size = len(sampled_records)
+        self.original_length = sampled_records.original_length
         self.multiplier = sampled_records.original_length / len(sampled_records)
 
         self.blocker = blocking.Blocker(predicates)
@@ -113,23 +134,36 @@ class DedupeBlockLearner(BlockLearner):
 
             for id, record in viewitems(records):
                 blocks = predicate(record)
-                for block in blocks:
+                for block in sorted(blocks)[(predicate.required_matches - 1):]:
                     cover[predicate].setdefault(block, set()).add(id)
-
-        for predicate, blocks in cover.items():
-            cover_count = collections.defaultdict(int)
-            for block in blocks.values():
-                for pair in itertools.combinations(sorted(block), 2):
-                    pair_id = self.pair_id[pair]
-                    cover_count[pair_id] += 1
-
-            cover[predicate] = {pair_id for pair_id, count in cover_count.items()
-                                if count >= predicate.required_matches}
 
         return cover
 
     def estimate(self, blocks):
-        return len(blocks) * self.multiplier * self.multiplier
+        # hypergeometric
+        # https://books.google.com/books?id=MpPhBwAAQBAJ&pg=PA469&lpg=PA469&dq=mle+hypergeometric&source=bl&ots=DJfeluGLt_&sig=4zqZp6Y-FNiXACe5YdX0pC7h6J8&hl=en&sa=X&ved=0ahUKEwj3lY-R_8zbAhVK64MKHco6D1sQ6AEIgwEwCQ#v=onepage&q=mle%20hypergeometric&f=false
+        #
+
+        #proportion of
+
+        #math.floor((M + 1)k_1/n) + math.floor((M + 1)k_2/n)
+
+        #~ (M + 1)k_1/n + (M + 1)k_2/n
+
+        #~ ((M + 1/n)k_1) * ((M + 1/n)k_1) - 1) / 2 + ...
+
+        #~ ((M + 1/n)**2 / 2 (k_1**2 + k_2** ... )
+
+        # okay so we don't need to compare pairs, but direct cover
+
+        print(blocks)
+        # return 1
+        # raise
+        # import math
+        # print(blocks)
+        # abundance = math.floor((self.original_length + 1) * len(blocks)/self.sample_size)
+        # print(abundance)
+        # return abundance * (abundance - 1)/2
 
 
 class RecordLinkBlockLearner(BlockLearner):
@@ -272,7 +306,7 @@ class BranchBound(object):
 
 def cover(blocker, pairs, total_cover, compound_length):  # pragma: no cover
     cover = coveredPairs(blocker.predicates, pairs)
-    cover = dominators(cover, total_cover)
+    cover = dominators_1(cover, total_cover)
     cover = compound(cover, compound_length)
     cover = remaining_cover(cover)
 
@@ -302,6 +336,11 @@ def compound(cover, compound_length):
         compound_predicates = itertools.combinations(simple_predicates, i)
 
         for compound_predicate in compound_predicates:
+            multi_matches = sum(pred.required_matches > 1
+                                for pred in compound_predicate)
+            
+            if multi_matches > 1:
+                continue
             a, b = compound_predicate[:-1], compound_predicate[-1]
             if len(a) == 1:
                 a = a[0]
@@ -336,13 +375,9 @@ def unique(seq):
     return cleaned
 
 
-def dominators(match_cover, total_cover, comparison=False):
-    if comparison:
-        def sort_key(x):
-            return (-total_cover[x], len(match_cover[x]))
-    else:
-        def sort_key(x):
-            return (len(match_cover[x]), -len(total_cover[x]))
+def dominators_2(match_cover, total_cover, comparison=False):
+    def sort_key(x):
+        return (-total_cover[x], len(match_cover[x]))
 
     ordered_predicates = sorted(match_cover, key=sort_key)
     dominants = {}
@@ -357,6 +392,28 @@ def dominators(match_cover, total_cover, comparison=False):
             dominants[candidate] = match
 
     return dominants
+
+def dominators_1(match_cover, total_cover, comparison=False):
+    def sort_key(x):
+        return (len(match_cover[x]), -len(total_cover[x]))
+
+
+    ordered_predicates = sorted(match_cover, key=sort_key)
+    dominants = {}
+
+    return match_cover
+
+    for i, candidate in enumerate(ordered_predicates, 1):
+        match = match_cover[candidate]
+        total = total_cover[candidate]
+
+        if not any((match_cover[pred] >= match and
+                    sum(total_cover[pred].values()) <= sum(total.values()))
+                   for pred in ordered_predicates[i:]):
+            dominants[candidate] = match
+
+    return dominants
+
 
 
 OUT_OF_PREDICATES_WARNING = "Ran out of predicates: Dedupe tries to find blocking rules that will work well with your data. Sometimes it can't find great ones, and you'll get this warning. It means that there are some pairs of true records that dedupe may never compare. If you are getting bad results, try increasing the `max_comparison` argument to the train method"  # noqa: E501

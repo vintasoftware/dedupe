@@ -294,13 +294,16 @@ class DedupeMatching(Matching):
                     for record_id, cover in coverage.items()}
 
         for block_key, block in blocks.items():
+            pred_id, _, required_matches = block_key
             processed_block = []
             for record_id in block:
                 smaller_blocks = {k for k in coverage[record_id]
                                   if k < block_key}
-                processed_block.append((record_id, data_d[record_id], smaller_blocks))
+                if sum(key[0] == pred_id for key in smaller_blocks) >= (required_matches - 1):
+                    processed_block.append((record_id, data_d[record_id], smaller_blocks))
 
-            yield block_key, processed_block
+            if len(processed_block) > 1:
+                yield block_key, processed_block
 
     def _checkBlock(self, block):
         if block:
