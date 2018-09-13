@@ -31,6 +31,8 @@ class BlockLearner(object):
                            self.total_cover, compound_length)
         comparison_count = self.comparisons(dupe_cover, compound_length)
 
+        dc = dupe_cover.copy()
+
         dupe_cover = dominators(dupe_cover, comparison_count, comparison=True)
 
         coverable_dupes = set.union(*viewvalues(dupe_cover))
@@ -48,6 +50,11 @@ class BlockLearner(object):
 
         for pred in dupe_cover:
             pred.count = comparison_count[pred]
+
+        exhaustive_candidates = sorted((comparison_count[p], p) for p, c in dc.items()
+                                 if c >= coverable_dupes)
+
+        print('exhaustive', exhaustive_candidates)
 
         searcher = BranchBound(len(coverable_dupes) - epsilon, 2500)
         final_predicates = searcher.search(dupe_cover)
