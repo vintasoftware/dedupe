@@ -54,7 +54,7 @@ class DataModel(object):
 
         return comparators
 
-    def predicates(self, index_predicates=True, canopies=True):
+    def predicates(self, index_predicates=False, canopies=False):
         predicates = set()
         for definition in self.primary_fields:
             for predicate in definition.predicates:

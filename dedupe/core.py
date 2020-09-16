@@ -435,3 +435,35 @@ def unique(seq: Iterable) -> list:
         if each not in cleaned:
             cleaned.append(each)
     return cleaned
+
+
+def take(n, iterable):
+    """Copied from more-itertools library:
+    Return first *n* items of the iterable as a list.
+        >>> take(3, range(10))
+        [0, 1, 2]
+    If there are fewer than *n* items in the iterable, all of them are
+    returned.
+        >>> take(10, range(3))
+        [0, 1, 2]
+    """
+    return list(itertools.islice(iterable, n))
+
+
+def chunked(iterable, n):
+    """Copied from more-itertools library:
+    Break *iterable* into lists of length *n*:
+        >>> list(chunked([1, 2, 3, 4, 5, 6], 3))
+        [[1, 2, 3], [4, 5, 6]]
+    If the length of *iterable* is not evenly divisible by *n*, the last
+    returned list will be shorter:
+        >>> list(chunked([1, 2, 3, 4, 5, 6, 7, 8], 3))
+        [[1, 2, 3], [4, 5, 6], [7, 8]]
+    To use a fill-in value instead, see the :func:`grouper` recipe.
+    :func:`chunked` is useful for splitting up a computation on a large number
+    of keys into batches, to be pickled and sent off to worker processes. One
+    example is operations on rows in MySQL, which does not implement
+    server-side cursors properly and would otherwise load the entire dataset
+    into RAM on the client.
+    """
+    return iter(functools.partial(take, n, iter(iterable)), [])

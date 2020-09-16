@@ -122,7 +122,7 @@ class DedupeBlockLearner(BlockLearner):
 
         self.r = (N * (N - 1)) / (N_s * (N_s - 1))
 
-        self.blocker = blocking.Fingerprinter(predicates)
+        self.blocker = blocking.Fingerprinter(predicates, num_cores=1)
         self.blocker.index_all(data)
 
         simple_cover = self.coveredPairs(self.blocker, sampled_records)
@@ -183,7 +183,7 @@ class RecordLinkBlockLearner(BlockLearner):
 
         self.r = r_a * r_b
 
-        self.blocker = blocking.Fingerprinter(predicates)
+        self.blocker = blocking.Fingerprinter(predicates, num_cores=1)
         self.blocker.index_all(data_2)
 
         simple_cover = self.coveredPairs(self.blocker,

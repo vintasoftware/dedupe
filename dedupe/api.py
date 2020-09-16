@@ -941,7 +941,7 @@ class StaticMatching(Matching):
 
         logger.info(self.predicates)
 
-        self._fingerprinter = blocking.Fingerprinter(self.predicates)
+        self._fingerprinter = blocking.Fingerprinter(self.predicates, self.num_cores)
 
 
 class ActiveMatching(Matching):
@@ -1017,7 +1017,7 @@ class ActiveMatching(Matching):
 
     def train(self,
               recall: float = 0.95,
-              index_predicates: bool = True) -> None:  # pragma: no cover
+              index_predicates: bool = False) -> None:  # pragma: no cover
         """
         Learn final pairwise classifier and fingerprinting rules. Requires that
         adequate training data has been already been provided.
@@ -1044,7 +1044,7 @@ class ActiveMatching(Matching):
 
         self.predicates = self.active_learner.learn_predicates(
             recall, index_predicates)
-        self._fingerprinter = blocking.Fingerprinter(self.predicates)
+        self._fingerprinter = blocking.Fingerprinter(self.predicates, self.num_cores)
         self.fingerprinter.reset_indices()
 
     def write_training(self, file_obj: TextIO) -> None:  # pragma: no cover

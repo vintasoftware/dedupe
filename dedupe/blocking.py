@@ -4,27 +4,57 @@
 from collections import defaultdict
 import logging
 import time
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 
 from typing import Generator, Tuple, Iterable, Dict, List, Union
 from dedupe._typing import Record, RecordID, Data
 
 import dedupe.predicates
+from dedupe.core import chunked
 
 logger = logging.getLogger(__name__)
 
 Docs = Union[Iterable[str], Iterable[Iterable[str]]]
+
+# Assuming a worst case of 10 KBs per record,
+# BATCH_SIZE = 20_000 means 200 MBs per process on RAM,
+# plus 200 MBs * num_cores for the main process.
+BATCH_SIZE = 20_000
 
 
 def index_list():
     return defaultdict(list)
 
 
+def _batch_call_fingerprinter(predicates, record_batch, target):
+    blocking_map_rows = []
+
+    for record in record_batch:
+        record_id, instance = record
+
+        for pred_id, predicate in predicates:
+            block_keys = predicate(instance, target=target)
+            for block_key in block_keys:
+                blocking_map_rows.append((block_key + pred_id, record_id))
+    return blocking_map_rows
+
+
+def _batch_call_fingerprinter_and_log(start_time, iteration, predicates, record_batch, target):
+    blocking_map_rows = _batch_call_fingerprinter(predicates, record_batch, target)
+    # if iteration:
+    #     logger.info('%(iteration)d, %(elapsed)f2 seconds',
+    #                 {'iteration': iteration,
+    #                  'elapsed': time.perf_counter() - start_time})
+    return blocking_map_rows
+
+
 class Fingerprinter(object):
     '''Takes in a record and returns all blocks that record belongs to'''
 
-    def __init__(self, predicates: Iterable[dedupe.predicates.Predicate]) -> None:
+    def __init__(self, predicates: Iterable[dedupe.predicates.Predicate], num_cores: int) -> None:
 
         self.predicates = predicates
+        self.num_cores = num_cores
 
         self.index_fields: Dict[str,
                                 Dict[str,
@@ -44,6 +74,19 @@ class Fingerprinter(object):
                     self.index_fields[predicate.field][predicate.type].append(
                         predicate)
                     self.index_predicates.append(predicate)
+
+    def _separate_index_predicates(self, predicates: Iterable[Tuple[str, dedupe.predicates.Predicate]]):
+        full_predicates_with_index = []
+        full_predicates_without_index = []
+
+        for (pred_id, full_predicate) in predicates:
+            for predicate in full_predicate:
+                if predicate in self.index_predicates:
+                    full_predicates_with_index.append((pred_id, full_predicate))
+                else:
+                    full_predicates_without_index.append((pred_id, full_predicate))
+        
+        return full_predicates_with_index, full_predicates_without_index
 
     def __call__(self,
                  records: Iterable[Record],
@@ -85,11 +128,33 @@ class Fingerprinter(object):
 
         '''
 
-        start_time = time.perf_counter()
         predicates = [(':' + str(i), predicate)
                       for i, predicate
                       in enumerate(self.predicates)]
 
+        if self.num_cores == 1:
+            yield from self._serial_call(records, predicates, target)
+        else:
+            (
+                full_predicates_with_index,
+                full_predicates_without_index
+            ) = self._separate_index_predicates(predicates)
+
+            if full_predicates_without_index:
+                yield from self._parallel_call(records, full_predicates_with_index, full_predicates_without_index, target)
+            else:
+                # If all predicates have indexes, we can't run anything in parallel,
+                # so fallback to _serial_call.
+                # Predicates with index can't run in multiple processes because
+                # each process would need it's own copy of the indexes.
+                # This can easily blow memory up.
+                yield from self._serial_call(records, predicates)
+
+    def _serial_call(self,
+                     records: Iterable[Record],
+                     predicates: Iterable[Tuple[str, dedupe.predicates.Predicate]],
+                     target: bool) -> Generator[Tuple[str, RecordID], None, None]:
+        start_time = time.perf_counter()
         for i, record in enumerate(records):
             record_id, instance = record
 
@@ -102,6 +167,58 @@ class Fingerprinter(object):
                 logger.info('%(iteration)d, %(elapsed)f2 seconds',
                             {'iteration': i,
                              'elapsed': time.perf_counter() - start_time})
+
+    def _parallel_call(self,
+                       records: Iterable[Record],
+                       full_predicates_with_index: Iterable[Tuple[str, dedupe.predicates.Predicate]],
+                       full_predicates_without_index: Iterable[Tuple[str, dedupe.predicates.Predicate]],
+                       target: bool) -> Generator[Tuple[str, RecordID], None, None]:
+        start_time = time.perf_counter()
+        future_set = set()
+
+        with ProcessPoolExecutor(max_workers=self.num_cores - 1) as executor:
+            i = 0
+            record_batch_for_index_predicates = []
+
+            for record_batch in chunked(records, BATCH_SIZE):
+                i += len(record_batch)
+                if full_predicates_with_index:
+                    record_batch_for_index_predicates.extend(record_batch)
+
+                future = executor.submit(
+                    _batch_call_fingerprinter_and_log,
+                    start_time  if i % 10000 == 0 else None,
+                    i if i % 10000 == 0 else None,
+                    full_predicates_without_index,
+                    record_batch,
+                    target)
+                future_set.add(future)
+
+                if len(future_set) >= (self.num_cores - 1) * 2:
+                    # Now that enough tasks are scheduled,
+                    # do the full_predicates_with_index work here.
+                    if full_predicates_with_index:
+                        yield from _batch_call_fingerprinter(
+                            full_predicates_with_index,
+                            record_batch_for_index_predicates,
+                            target)
+                        record_batch_for_index_predicates.clear()
+
+                    # Don't leave many results into memory, yield them:
+                    done_future_set, future_set = wait(
+                        future_set,
+                        return_when=FIRST_COMPLETED)
+                    for future in done_future_set:
+                        yield from future.result()
+
+            # Do and yield the final work
+            if full_predicates_with_index:
+                yield from _batch_call_fingerprinter(
+                    full_predicates_with_index,
+                    record_batch_for_index_predicates,
+                    target)
+            for future in future_set:
+                yield from future.result()
 
     def reset_indices(self) -> None:
         '''
